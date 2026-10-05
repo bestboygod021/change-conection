@@ -109,10 +109,14 @@ function createStore(options = {}) {
     if (!browser) return { ok: false, error: 'browser-not-found' };
 
     let warning = null;
-    if (account.mode === 'vpn' && !chrome.resolveProxyServer('vpn', config.proxy, detected)) {
-      // پروکسی پیدا نشد؛ احتمالاً فیلترشکن از نوع TUN/آداپتور است.
+    if (account.mode === 'vpn' && chrome.proxyFlagsFor('vpn', config.proxy, detected).length === 0) {
+      // هیچ پروکسی/PAC پیدا نشد؛ احتمالاً فیلترشکن از نوع TUN/آداپتور است.
       // بدون فلگ پروکسی اجرا می‌کنیم تا از همان اتصال فعال سیستم پیروی کند.
-      warning = 'no-proxy-follow-system';
+      warning = detected.source === 'tun' ? 'follow-tun' : 'no-proxy-follow-system';
+    }
+    if (account.mode === 'direct' && detected.source === 'tun') {
+      // در TUN خالص، direct:// نمی‌تواند تونل را دور بزند؛ به رابط کاربری اطلاع می‌دهیم.
+      warning = 'tun-direct-not-bypassed';
     }
 
     fs.mkdirSync(profilesRoot, { recursive: true });

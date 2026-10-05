@@ -79,20 +79,43 @@ function findBrowser(customPath = '', options = {}) {
   return null;
 }
 
+function toProxyUrl(value) {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `http://${value}`;
+}
+
 /**
- * تبدیل تنظیم پروکسی به مقداری که کروم می‌فهمد.
- * 'auto' یعنی از نتیجه‌ی تشخیص خودکار (detected) استفاده شود.
- * @returns {string|null}  null = بدون فلگ پروکسی (حالت پیش‌فرض ویندوز)
+ * ساخت فلگ(های) پروکسی کروم برای هر حالت — سازگار با همه‌ی انواع اتصال:
+ *  - direct : همیشه direct:// (دور زدن پروکسی سیستم)
+ *  - system : بدون فلگ
+ *  - vpn    : پروکسی دستی > پروکسی/PAC تشخیص‌داده‌شده > بدون فلگ (پیروی از TUN)
+ * @returns {string[]}
+ */
+function proxyFlagsFor(mode, proxySetting = 'auto', detected = null) {
+  if (mode === 'direct') return ['--proxy-server=direct://'];
+  if (mode !== 'vpn') return [];
+
+  const raw = String(proxySetting || '').trim();
+  if (raw && raw !== 'auto') return [`--proxy-server=${toProxyUrl(raw)}`];
+
+  if (detected) {
+    if (detected.source === 'pac' && detected.pacUrl) {
+      return [`--proxy-pac-url=${detected.pacUrl}`];
+    }
+    const value = formatDetected(detected);
+    if (value) return [`--proxy-server=${value}`];
+  }
+  return [];
+}
+
+/**
+ * مقدار --proxy-server برای نمایش/ذخیره؛ null یعنی بدون فلگ.
  */
 function resolveProxyServer(mode, proxySetting = 'auto', detected = null) {
   if (mode === 'direct') return 'direct://';
-  if (mode === 'system') return null;
-  if (mode !== 'vpn') return null;
-
-  const raw = String(proxySetting || '').trim();
-  const value = !raw || raw === 'auto' ? formatDetected(detected) : raw;
-  if (!value) return null;
-  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `http://${value}`;
+  const flag = proxyFlagsFor(mode, proxySetting, detected).find(
+    (f) => f.startsWith('--proxy-server='),
+  );
+  return flag ? flag.slice('--proxy-server='.length) : null;
 }
 
 function formatDetected(detected) {
@@ -119,12 +142,7 @@ function buildLaunchArgs(account, options = {}) {
     '--hide-crash-restore-bubble',
   ];
 
-  const proxy = resolveProxyServer(account.mode, options.proxy, options.detected);
-  if (proxy === 'direct://') {
-    args.push('--proxy-server=direct://');
-  } else if (proxy) {
-    args.push(`--proxy-server=${proxy}`);
-  }
+  args.push(...proxyFlagsFor(account.mode, options.proxy, options.detected));
 
   if (Array.isArray(options.extraArgs)) args.push(...options.extraArgs);
   if (options.url) args.push(String(options.url));
@@ -135,6 +153,7 @@ module.exports = {
   BROWSERS,
   candidatesFor,
   findBrowser,
+  proxyFlagsFor,
   resolveProxyServer,
   formatDetected,
   buildLaunchArgs,

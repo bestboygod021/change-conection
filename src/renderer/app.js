@@ -82,10 +82,16 @@
   }
 
   function hintText(account, data) {
-    if (account.mode === 'direct') return 'بدون پروکسی — حتی اگر فیلترشکن روشن باشد';
+    const proxy = (data && data.proxy) || {};
+    if (account.mode === 'direct') {
+      if (proxy.source === 'tun') return `هشدار: ${proxy.adapter || 'تونل'} فعال است و در حالت TUN خالص قابل دور زدن نیست`;
+      return 'بدون پروکسی — حتی اگر فیلترشکن روشن باشد';
+    }
     if (account.mode === 'system') return 'همان پروکسی که در تنظیمات ویندوز فعال است';
     const address = proxyAddress(data);
-    if (address) return `از طریق پروکسی ${address}`;
+    if (address && proxy.source !== 'tun') return `از طریق پروکسی ${address}`;
+    if (proxy.source === 'pac') return 'از طریق PAC تنظیم‌شده در سیستم';
+    if (proxy.source === 'tun') return `از تونل فعال سیستم عبور می‌کند (${proxy.adapter || 'آداپتور مجازی'})`;
     return 'پروکسی پیدا نشد؛ از اتصال فعال سیستم پیروی می‌کند (TUN یا پروکسی سیستم)';
   }
 
@@ -197,11 +203,18 @@
 
   function renderProxyChip() {
     const chip = document.getElementById('proxyChip');
-    const dot = document.getElementById('proxyDot');
     const text = document.getElementById('proxyText');
     if (!chip || !state.data) return;
     const proxy = state.data.proxy || {};
-    if (proxy.source && proxy.source !== 'none' && proxy.address) {
+    if (proxy.source === 'pac') {
+      chip.className = 'proxy-chip on';
+      text.textContent = 'فیلترشکن فعال (PAC): ';
+      text.appendChild(el('b', { text: proxy.pacUrl || proxy.address }));
+    } else if (proxy.source === 'tun') {
+      chip.className = 'proxy-chip on';
+      text.textContent = 'فیلترشکن نوع آداپتور/TUN: ';
+      text.appendChild(el('b', { text: proxy.adapter || '' }));
+    } else if (proxy.source && proxy.source !== 'none' && proxy.address) {
       chip.className = 'proxy-chip on';
       text.textContent = 'فیلترشکن فعال: ';
       text.appendChild(el('b', { text: proxy.address }));
@@ -209,7 +222,6 @@
       chip.className = 'proxy-chip off';
       text.textContent = 'فیلترشکن پیدا نشد';
     }
-    if (dot) dot.className = 'dot';
   }
 
   /* ---------- کارها ---------- */
@@ -233,15 +245,24 @@
 
   async function launch(account) {
     if (!api) return;
+
+    // در حالت TUN خالص، «مستقیم» نمی‌تواند تونل را دور بزند؛ اول از کاربر تأیید بگیر
+    if (account.mode === 'direct' && state.data && state.data.proxy && state.data.proxy.source === 'tun') {
+      const proceed = await askTunDirect(state.data.proxy.adapter);
+      if (!proceed) return;
+    }
+
     state.busy.add(account.id);
     render();
     try {
       const result = await api.launch(account.id);
       if (result && result.ok) {
-        const note = result.warning === 'no-proxy-follow-system'
-          ? ' (پروکسی پیدا نشد؛ از اتصال فعال سیستم استفاده شد)'
-          : '';
-        setStatus(`کروم «${account.name}» باز شد.${note}`, 'ok');
+        const notes = {
+          'no-proxy-follow-system': ' (پروکسی پیدا نشد؛ از اتصال فعال سیستم استفاده شد)',
+          'follow-tun': ' (از تونل/آداپتور فعال سیستم استفاده شد)',
+          'tun-direct-not-bypassed': ' (توجه: در TUN خالص، ترافیک همچنان از تونل می‌گذرد)',
+        };
+        setStatus(`کروم «${account.name}» باز شد.${notes[result.warning] || ''}`, 'ok');
       } else if (result && result.error === 'already-running') {
         const reopen = await askRelaunch(account);
         if (reopen) {
@@ -346,6 +367,27 @@
         build: () => ({
           node: el('p', {
             text: 'برای این‌که اتصال جدید اعمال شود، کرومِ این اکانت بسته و دوباره باز می‌شود. تب‌های باز از بین می‌روند.',
+          }),
+          read: () => true,
+        }),
+        onOk: () => {
+          resolve(true);
+          return true;
+        },
+        onCancel: () => resolve(false),
+      });
+    });
+  }
+
+  function askTunDirect(adapter) {
+    return new Promise((resolve) => {
+      openModal({
+        title: 'فیلترشکن شما از نوع آداپتور/TUN است',
+        okLabel: 'با این حال باز کن',
+        build: () => ({
+          node: el('p', {
+            text: `«${adapter || 'آداپتور مجازی'}» ترافیک را در لایه‌ی شبکه تونل می‌کند، بنابراین حالت «مستقیم` +
+              `» نمی‌تواند آن را دور بزند و این اکانت هم از تونل عبور می‌کند. برای داشتن اتصال واقعاً مستقیم، در فیلترشکن خود حالت «پروکسی سیستم» را روشن کنید.`,
           }),
           read: () => true,
         }),

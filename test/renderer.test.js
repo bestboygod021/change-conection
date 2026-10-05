@@ -338,3 +338,61 @@ test('صفحه راست‌به‌چپ و فارسی است', async () => {
   assert.strictEqual(document.documentElement.getAttribute('lang'), 'fa');
   window.NS.stop();
 });
+
+/* --- سازگاری گسترده در رابط کاربری: PAC و TUN --- */
+
+test('نوار بالا آداپتور TUN را نشان می‌دهد', async () => {
+  const { document, window } = await createApp({
+    state: baseState({ proxy: { source: 'tun', adapter: 'WireGuard Tunnel', host: null, port: null, address: 'WireGuard Tunnel' } }),
+  });
+  const text = document.getElementById('proxyText').textContent;
+  assert.ok(text.includes('TUN'));
+  assert.ok(text.includes('WireGuard Tunnel'));
+  window.NS.stop();
+});
+
+test('نوار بالا حالت PAC را نشان می‌دهد', async () => {
+  const { document, window } = await createApp({
+    state: baseState({ proxy: { source: 'pac', pacUrl: 'http://127.0.0.1:7890/pac.js', address: 'http://127.0.0.1:7890/pac.js' } }),
+  });
+  const text = document.getElementById('proxyText').textContent;
+  assert.ok(text.includes('PAC'));
+  window.NS.stop();
+});
+
+test('راهنمای کارت با فیلترشکن زیر TUN، عبور از تونل را توضیح می‌دهد', async () => {
+  const { document, window } = await createApp({
+    state: baseState({ proxy: { source: 'tun', adapter: 'Warp', host: null, port: null, address: 'Warp' } }),
+  });
+  const hint = cardOf(document, 'a1').querySelector('.hint').textContent;
+  assert.ok(hint.includes('تونل'));
+  window.NS.stop();
+});
+
+test('باز کردن اکانت مستقیم زیر TUN، اول تأیید می‌گیرد؛ انصراف یعنی اجرا نشدن', async () => {
+  const { document, calls, window } = await createApp({
+    state: baseState({ proxy: { source: 'tun', adapter: 'Warp', host: null, port: null, address: 'Warp' } }),
+  });
+  click(cardOf(document, 'a2').querySelector('[data-action="launch"]'));
+  await tick();
+  assert.strictEqual(document.getElementById('modalBackdrop').hidden, false);
+  assert.ok(document.getElementById('modalTitle').textContent.includes('TUN'));
+
+  click(document.getElementById('modalCancel'));
+  await tick();
+  assert.strictEqual(calls.filter((c) => c[0] === 'launch').length, 0);
+  window.NS.stop();
+});
+
+test('تأیید در پنجره‌ی TUN، اکانت مستقیم را اجرا می‌کند', async () => {
+  const { document, calls, window } = await createApp({
+    state: baseState({ proxy: { source: 'tun', adapter: 'Warp', host: null, port: null, address: 'Warp' } }),
+  });
+  click(cardOf(document, 'a2').querySelector('[data-action="launch"]'));
+  await tick();
+  click(document.getElementById('modalOk'));
+  await tick();
+  await tick();
+  assert.deepStrictEqual(calls[0], ['launch', 'a2', null]);
+  window.NS.stop();
+});

@@ -196,3 +196,58 @@ test('پورت نامعتبر در proxyPorts حذف می‌شود', async () =>
   store.updateSettings({ proxyPorts: [80, 'x', 99999, 80, 443] });
   assert.deepStrictEqual(store.config.proxyPorts, [80, 443]);
 });
+
+function tunEnv() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'netsplit-tun-'));
+  const calls = [];
+  const spawn = (cmd, args) => {
+    const child = new EventEmitter();
+    child.pid = 500 + calls.length;
+    child.killed = false;
+    child.kill = () => {
+      child.killed = true;
+    };
+    calls.push({ cmd, args });
+    return child;
+  };
+  const store = createStore({
+    configDir: dir,
+    platform: 'win32',
+    env: { APPDATA: dir },
+    spawn,
+    exists: existsWithoutLocks,
+    detectProxy: () => Promise.resolve({ source: 'tun', adapter: 'WireGuard Tunnel', host: null, port: null, address: 'WireGuard Tunnel' }),
+  });
+  const fakeBrowser = path.join(dir, 'chrome.exe');
+  fs.writeFileSync(fakeBrowser, 'x');
+  store.updateSettings({ chromePath: fakeBrowser });
+  return { calls, store };
+}
+
+test('حالت «با فیلترشکن» زیر TUN: بدون فلگ پروکسی + هشدار follow-tun', async () => {
+  const { calls, store } = tunEnv();
+  await store.refreshProxy();
+  const vpn = store.config.accounts.find((a) => a.mode === 'vpn');
+  const result = await store.launch(vpn.id);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.warning, 'follow-tun');
+  assert.ok(!calls[0].args.some((a) => a.startsWith('--proxy-server') || a.startsWith('--proxy-pac-url')));
+});
+
+test('حالت «مستقیم» زیر TUN: هشدار tun-direct-not-bypassed (ولی باز هم direct://)', async () => {
+  const { calls, store } = tunEnv();
+  await store.refreshProxy();
+  const direct = store.config.accounts.find((a) => a.mode === 'direct');
+  const result = await store.launch(direct.id);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.warning, 'tun-direct-not-bypassed');
+  assert.ok(calls[0].args.includes('--proxy-server=direct://'));
+});
+
+test('getState زیر TUN نوع اتصال را برای رابط کاربری لو می‌دهد', async () => {
+  const { store } = tunEnv();
+  await store.refreshProxy();
+  const state = await store.getState();
+  assert.strictEqual(state.proxy.source, 'tun');
+  assert.strictEqual(state.proxy.adapter, 'WireGuard Tunnel');
+});

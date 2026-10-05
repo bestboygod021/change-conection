@@ -99,3 +99,35 @@ test('بدون پوشه‌ی پروفایل یا اکانت، خطای واضح 
   assert.throws(() => chrome.buildLaunchArgs({ folder: 'a' }, {}), /profiles-root-required/);
   assert.throws(() => chrome.buildLaunchArgs({}, { profilesRoot: '/p' }), /account-folder-required/);
 });
+
+/* --- سازگاری با PAC و TUN در ساخت آرگومان --- */
+
+test('حالت «با فیلترشکن» با اتصال PAC، فلگ --proxy-pac-url می‌گیرد', () => {
+  const flags = chrome.proxyFlagsFor('vpn', 'auto', { source: 'pac', pacUrl: 'http://127.0.0.1:7890/pac.js' });
+  assert.deepStrictEqual(flags, ['--proxy-pac-url=http://127.0.0.1:7890/pac.js']);
+
+  const args = chrome.buildLaunchArgs({ id: 'x', folder: 'f', mode: 'vpn' }, {
+    profilesRoot: '/p',
+    detected: { source: 'pac', pacUrl: 'http://127.0.0.1:7890/pac.js' },
+  });
+  assert.ok(args.includes('--proxy-pac-url=http://127.0.0.1:7890/pac.js'));
+  assert.ok(!args.some((a) => a.startsWith('--proxy-server')));
+});
+
+test('پروکسی دستی بر PAC تشخیص‌داده‌شده اولویت دارد', () => {
+  const flags = chrome.proxyFlagsFor('vpn', '127.0.0.1:10808', { source: 'pac', pacUrl: 'http://x/pac.js' });
+  assert.deepStrictEqual(flags, ['--proxy-server=http://127.0.0.1:10808']);
+});
+
+test('حالت «مستقیم» حتی زیر TUN همچنان direct:// است', () => {
+  const args = chrome.buildLaunchArgs({ id: '1', folder: 'a', mode: 'direct' }, {
+    profilesRoot: '/p',
+    detected: { source: 'tun', adapter: 'WireGuard Tunnel' },
+  });
+  assert.ok(args.includes('--proxy-server=direct://'));
+});
+
+test('حالت «با فیلترشکن» زیر TUN بدون فلگ پروکسی است (پیروی از تونل)', () => {
+  const flags = chrome.proxyFlagsFor('vpn', 'auto', { source: 'tun', adapter: 'Warp' });
+  assert.deepStrictEqual(flags, []);
+});

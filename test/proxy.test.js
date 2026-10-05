@@ -179,3 +179,61 @@ test('پورت‌های اضافیِ کاربر هم در جست‌وجو شرک
   assert.strictEqual(result.scheme, 'socks5');
   assert.strictEqual(result.address, '127.0.0.1:12345');
 });
+
+/* --- سازگاری گسترده: PAC و آداپتور TUN --- */
+
+const PAC_REG = REG_OUTPUT.replace(
+  'AutoConfigURL    REG_SZ    C:\\proxy.pac',
+  'AutoConfigURL    REG_SZ    http://127.0.0.1:7890/pac.js',
+);
+
+test('AutoConfigURL از رجیستری خوانده می‌شود', () => {
+  const info = proxy.parseRegInternetSettings(PAC_REG);
+  assert.strictEqual(info.autoConfig, 'http://127.0.0.1:7890/pac.js');
+});
+
+test('parsePacUrl فقط آدرس شبکه را می‌پذیرد', () => {
+  assert.deepStrictEqual(proxy.parsePacUrl('http://127.0.0.1:7890/pac.js'), { host: '127.0.0.1', port: 7890 });
+  assert.strictEqual(proxy.parsePacUrl('C:\\proxy.pac'), null);
+  assert.strictEqual(proxy.parsePacUrl(''), null);
+});
+
+const TUN_INTERFACES = {
+  'Ethernet': [{ internal: false, family: 'IPv4', address: '192.168.1.5' }],
+  'Wi-Fi': [{ internal: false, family: 'IPv4', address: '192.168.1.9' }],
+  'WireGuard Tunnel': [{ internal: false, family: 'IPv4', address: '10.6.0.2' }],
+  'lo': [{ internal: true, family: 'IPv4', address: '127.0.0.1' }],
+};
+
+test('آداپتور مجازی (TUN) از روی رابط‌ها شناخته می‌شود', () => {
+  assert.strictEqual(proxy.detectTunAdapter(TUN_INTERFACES), 'WireGuard Tunnel');
+});
+
+test('بدون آداپتور مجازی، null برمی‌گردد', () => {
+  const physical = { 'Ethernet': TUN_INTERFACES['Ethernet'], 'lo': TUN_INTERFACES['lo'] };
+  assert.strictEqual(proxy.detectTunAdapter(physical), null);
+  assert.strictEqual(proxy.detectTunAdapter({}), null);
+});
+
+test('در ویندوز با PAC فعال و پروکسی خاموش، source=pac', async () => {
+  const runner = (cmd, args, cb) => cb(null, PAC_REG);
+  const result = await proxy.detectProxy({
+    platform: 'win32',
+    runner,
+    probe: (h, p) => Promise.resolve(p === 7890),
+    ports: [],
+  });
+  assert.strictEqual(result.source, 'pac');
+  assert.strictEqual(result.pacUrl, 'http://127.0.0.1:7890/pac.js');
+});
+
+test('بدون پروکسی ولی با آداپتور TUN، source=tun', async () => {
+  const result = await proxy.detectProxy({
+    platform: 'linux',
+    ports: [],
+    connect: () => Promise.resolve({ open: false, scheme: 'http' }),
+    interfaces: TUN_INTERFACES,
+  });
+  assert.strictEqual(result.source, 'tun');
+  assert.strictEqual(result.adapter, 'WireGuard Tunnel');
+});

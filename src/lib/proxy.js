@@ -13,6 +13,7 @@
  */
 
 const net = require('net');
+const os = require('os');
 const { execFile } = require('child_process');
 
 /** پورت‌های رایج انواع فیلترشکن‌ها و تغییر آی‌پی */
@@ -72,15 +73,40 @@ function parseRegInternetSettings(stdout) {
   const text = String(stdout || '');
   let enabled = false;
   let server = null;
+  let autoConfig = null;
   for (const line of text.split(/\r?\n/)) {
     const m = line.match(/^\s*(\w+)\s+REG_(SZ|DWORD)\s+(.*)$/);
     if (!m) continue;
     const [, key, type, value] = m;
     if (key.toLowerCase() === 'proxyenable') enabled = parseInt(value, 16) !== 0 || value.trim() === '1';
     if (key.toLowerCase() === 'proxyserver' && type === 'SZ') server = value.trim();
+    if (key.toLowerCase() === 'autoconfigurl' && type === 'SZ') autoConfig = value.trim();
   }
   const parsed = parseProxyServer(server);
-  return { enabled, server, ...(parsed || { host: null, port: null, scheme: null }) };
+  return { enabled, server, autoConfig, ...(parsed || { host: null, port: null, scheme: null }) };
+}
+
+/** استخراج host/port از آدرس PAC برای بررسی زنده‌بودن */
+function parsePacUrl(url) {
+  const m = String(url || '').match(/^https?:\/\/([^:/]+):(\d{1,5})/i);
+  if (!m) return null;
+  const port = Number(m[2]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return { host: m[1], port };
+}
+
+/** نام الگوهای آداپتورهای مجازیِ فیلترشکن/تغییر آی‌پی (TUN/TAP/VPN) */
+const TUN_ADAPTER_PATTERN = /wintun|wireguard|tap[- ]?windows|tap adapter|tun\b|tunnel|warp|vpn|openvpn|proxyfier|proxifier|tunnelbear|ipvanish|expressvpn|nordvpn|surfshark|hide\.?me|private internet|northlayer/i;
+
+/** تشخیص آداپتور مجازی از روی فهرست رابط‌های شبکه (بدون وابستگی به نام نرم‌افزار) */
+function detectTunAdapter(interfaces) {
+  if (!interfaces || typeof interfaces !== 'object') return null;
+  for (const [name, addrs] of Object.entries(interfaces)) {
+    if (!Array.isArray(addrs) || addrs.length === 0) continue;
+    const usable = addrs.some((a) => a && !a.internal);
+    if (usable && TUN_ADAPTER_PATTERN.test(name)) return name;
+  }
+  return null;
 }
 
 function probePort(host, port, timeout = 400, netModule = net) {
@@ -185,11 +211,13 @@ async function detectProxy(options = {}) {
   const probe = options.probe || ((h, p, t) => probePort(h, p, t));
   const connect = options.connect || ((h, p, t) => connectIdentify(h, p, t));
 
-  // ۱) پروکسی سیستم در ویندوز (هر نرم‌افزاری که آن را ست کند)
+  // ۱+۲) پروکسی سیستم یا PAC در رجیستری ویندوز (هر نرم‌افزاری که ست کند)
   if (platform === 'win32') {
     const out = await runRegQuery(runner);
     if (out) {
       const info = parseRegInternetSettings(out);
+
+      // پروکسی مستقیم سیستم
       if (info.enabled && info.host && info.port) {
         const alive = await probe(info.host, info.port, options.timeout || 500);
         if (alive) {
@@ -202,10 +230,27 @@ async function detectProxy(options = {}) {
           };
         }
       }
+
+      // حالت PAC (رایج در Shadowsocks و بسیاری از ابزارهای تغییر آی‌پی)
+      // فقط آدرس‌های http/https معتبرند (رجیستری گاهی مسیر محلی می‌گذارد که به‌درد کروم نمی‌خورد)
+      if (info.autoConfig && /^https?:\/\//i.test(info.autoConfig)) {
+        const pac = parsePacUrl(info.autoConfig);
+        const alive = pac ? await probe(pac.host, pac.port, options.timeout || 500) : true;
+        if (alive) {
+          return {
+            source: 'pac',
+            pacUrl: info.autoConfig,
+            host: pac ? pac.host : null,
+            port: pac ? pac.port : null,
+            scheme: null,
+            address: info.autoConfig,
+          };
+        }
+      }
     }
   }
 
-  // ۲) گشتن پورت‌های رایج + تأیید پروتکل
+  // ۳) گشتن پورت‌های رایج + تأیید پروتکل
   const extra = Array.isArray(options.extraPorts) ? options.extraPorts : [];
   const scanned = await scanLocalProxies({
     host,
@@ -215,6 +260,13 @@ async function detectProxy(options = {}) {
   });
   if (scanned) {
     return { source: 'scan', ...scanned, address: `${scanned.host}:${scanned.port}` };
+  }
+
+  // ۴) آداپتور مجازی (TUN/TAP) — فیلترشکن‌های بدون پروکسی مثل Warp/WireGuard
+  const interfaces = options.interfaces || os.networkInterfaces();
+  const adapter = detectTunAdapter(interfaces);
+  if (adapter) {
+    return { source: 'tun', adapter, host: null, port: null, scheme: null, address: adapter };
   }
 
   return { source: 'none', host: null, port: null, scheme: null, address: '' };
@@ -231,4 +283,7 @@ module.exports = {
   connectIdentify,
   scanLocalProxies,
   detectProxy,
+  parsePacUrl,
+  detectTunAdapter,
+  TUN_ADAPTER_PATTERN,
 };
