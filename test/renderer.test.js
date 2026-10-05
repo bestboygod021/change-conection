@@ -473,3 +473,22 @@ test('تیک اجرای خودکار، setAutoLaunch را فعال می‌کند
   assert.deepStrictEqual(autoCalls[0], ['setAutoLaunch', true]);
   window.NS.stop();
 });
+
+test('رگرسیون: پنجره‌ی کوچک در شروع برنامه واقعاً پنهان است', async () => {
+  const { document, window } = await createApp();
+  const css = fs.readFileSync(path.join(ROOT, 'src/renderer/styles.css'), 'utf8');
+  const style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
+
+  const backdrop = document.getElementById('modalBackdrop');
+  assert.strictEqual(backdrop.hidden, true);
+  assert.strictEqual(window.getComputedStyle(backdrop).display, 'none');
+
+  // و وقتی واقعاً باز می‌شود، دیده شود
+  click(document.querySelector('.bottombar [data-action="add"]'));
+  await tick();
+  assert.strictEqual(backdrop.hidden, false);
+  assert.strictEqual(window.getComputedStyle(backdrop).display, 'grid');
+  window.NS.stop();
+});

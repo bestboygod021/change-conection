@@ -20,6 +20,12 @@
   box-sizing: border-box;
 }
 
+/* مهم: عنصرهایی که hidden دارند باید واقعاً پنهان بمانند،
+   حتی اگر قانون دیگری display آن‌ها را ست کند (مثل modal-backdrop) */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
