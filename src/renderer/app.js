@@ -59,7 +59,12 @@
     edit: ['M4 20h4l10-10-4-4L4 16v4z', 'M14 6l4 4'],
     trash: ['M4 7h16', 'M9 7V5h6v2', 'M6 7l1 13h10l1-13'],
     folder: ['M3 7h6l2 2h10v9H3z'],
+    globe: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18', 'M3 12h18', 'M12 3a13.5 13.5 0 0 1 0 18', 'M12 3a13.5 13.5 0 0 0 0 18'],
+    eraser: ['M20 20H9', 'M5 15l8-8 6 6-8 8H5z'],
+    power: ['M12 3v8', 'M6.3 6.3a8 8 0 1 0 11.4 0'],
   };
+
+  const IP_CHECK_URL = 'https://api.ipify.org';
 
   /* ---------- وضعیت ---------- */
   function setStatus(text, kind) {
@@ -147,8 +152,25 @@
       el('button', {
         class: 'icon-btn',
         type: 'button',
+        title: 'نمایش آی‌پی فعلی این اکانت',
+        'aria-label': 'نمایش آی‌پی فعلی',
+        'data-action': 'show-ip',
+        onclick: () => showIp(account),
+      }, [icon(ICONS.globe)]),
+      el('button', {
+        class: 'icon-btn',
+        type: 'button',
+        title: 'پاک‌سازی کوکی‌ها و تاریخچه‌ی این اکانت',
+        'aria-label': 'پاک‌سازی داده‌ها',
+        'data-action': 'clear-data',
+        onclick: () => askClearData(account),
+      }, [icon(ICONS.eraser)]),
+      el('button', {
+        class: 'icon-btn',
+        type: 'button',
         title: 'تغییر نام',
         'aria-label': 'تغییر نام',
+        'data-action': 'rename',
         onclick: () => askRename(account),
       }, [icon(ICONS.edit)]),
       el('button', {
@@ -156,6 +178,7 @@
         type: 'button',
         title: 'حذف اکانت',
         'aria-label': 'حذف اکانت',
+        'data-action': 'remove',
         onclick: () => askRemove(account),
       }, [icon(ICONS.trash)]),
     ]);
@@ -292,6 +315,45 @@
     }
   }
 
+  async function showIp(account) {
+    if (!api) return;
+    state.busy.add(account.id);
+    render();
+    try {
+      const result = await api.launch(account.id, { url: IP_CHECK_URL, skipRunningCheck: true });
+      if (result && result.ok) setStatus(`صفحه‌ی نمایش آی‌پی «${account.name}» باز شد.`, 'ok');
+      else setStatus(message(result && result.error), 'error');
+    } finally {
+      state.busy.delete(account.id);
+      await refresh();
+    }
+  }
+
+  function askClearData(account) {
+    openModal({
+      title: 'پاک‌سازی داده‌های اکانت',
+      okLabel: 'پاک کن',
+      danger: true,
+      build: () => ({
+        node: el('p', {
+          text: `کوکی‌ها و تاریخچه‌ی «${account.name}» پاک می‌شود و از گوگل خارج می‌شوید. کروم این اکانت باید بسته باشد.`,
+        }),
+        read: () => true,
+      }),
+      onOk: async () => {
+        const result = await api.clearData(account.id);
+        if (result && result.ok) {
+          setStatus(`داده‌های «${account.name}» پاک شد.`, 'ok');
+          return true;
+        }
+        setStatus(result && result.error === 'close-first'
+          ? 'اول کروم این اکانت را ببندید، بعد پاک‌سازی کنید.'
+          : message(result && result.error), 'error');
+        return false;
+      },
+    });
+  }
+
   function askRename(account) {
     openModal({
       title: 'تغییر نام اکانت',
@@ -400,14 +462,17 @@
     });
   }
 
-  function askSettings() {
+  async function askSettings() {
     if (!state.data) return;
     const data = state.data;
+    const autoLaunch = api && api.getAutoLaunch ? await api.getAutoLaunch() : false;
     openModal({
       title: 'تنظیمات',
       okLabel: 'ذخیره',
       wide: true,
       build: () => {
+        const autoCheck = el('input', { type: 'checkbox' });
+        if (autoLaunch) autoCheck.checked = true;
         const browserInput = el('input', {
           type: 'text',
           value: data.config.chromePath || '',
@@ -443,6 +508,12 @@
 
         return {
           node: el('div', {}, [
+            el('div', { class: 'field' }, [
+              el('label', { text: 'عمومی', style: 'display:flex;align-items:center;gap:8px' }, [
+                autoCheck,
+                document.createTextNode(' اجرای خودکار نت‌اسپلیت هنگام بالا آمدن ویندوز'),
+              ]),
+            ]),
             el('div', { class: 'field' }, [
               el('label', { text: 'مرورگر (chrome.exe)' }),
               el('div', { class: 'row' }, [browserInput, browseBtn]),
@@ -488,11 +559,13 @@
               .split(/[\s,،]+/)
               .map(Number)
               .filter((n) => Number.isInteger(n) && n >= 1 && n <= 65535),
+            autoLaunch: autoCheck.checked,
           }),
         };
       },
       onOk: async (value) => {
         state.data = await api.updateSettings(value);
+        if (api.setAutoLaunch) await api.setAutoLaunch(!!value.autoLaunch);
         await api.refreshProxy();
         await refresh();
         setStatus('تنظیمات ذخیره شد.', 'ok');
@@ -585,6 +658,14 @@
     document.querySelectorAll('[data-action="settings"]').forEach((node) => {
       node.addEventListener('click', askSettings);
     });
+    document.querySelectorAll('[data-action="close-all"]').forEach((node) => {
+      node.addEventListener('click', async () => {
+        if (!api) return;
+        const result = await api.closeAll();
+        setStatus(result && result.closed ? `${result.closed} پنجره‌ی کروم بسته شد.` : 'پنجره‌ای برای بستن نبود.', result && result.closed ? 'ok' : undefined);
+        await refresh();
+      });
+    });
     const refreshBtn = document.getElementById('refreshProxy');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', async () => {
@@ -639,6 +720,8 @@
     chooseMode,
     launch,
     closeAccount,
+    showIp,
+    askClearData,
     askAdd,
     askSettings,
     askRename,

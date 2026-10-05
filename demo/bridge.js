@@ -114,16 +114,35 @@
       save();
       return emit();
     },
-    async launch(id) {
+    async launch(id, opts) {
       await wait(300);
       const account = find(id);
       if (!account) return { ok: false, error: 'account-not-found' };
       if (account.mode === 'vpn' && data.config.proxy === 'none') return { ok: false, error: 'no-proxy-detected' };
-      if (data.running[id]) return { ok: false, error: 'already-running' };
+      if (data.running[id] && !(opts && opts.skipRunningCheck)) return { ok: false, error: 'already-running' };
       data.running[id] = true;
       save();
       emit();
       return { ok: true, pid: 1000 + data.config.accounts.length };
+    },
+    async closeAll() {
+      const count = Object.keys(data.running).length;
+      data.running = {};
+      save();
+      emit();
+      return { ok: true, closed: count };
+    },
+    async clearData(id) {
+      if (data.running[id]) return { ok: false, error: 'close-first' };
+      return { ok: true, removed: 3 };
+    },
+    async setAutoLaunch(on) {
+      data.autoLaunch = !!on;
+      save();
+      return { ok: true, enabled: !!on };
+    },
+    async getAutoLaunch() {
+      return !!data.autoLaunch;
     },
     async close(id) {
       await wait(200);

@@ -54,11 +54,11 @@ class Launcher {
    * @returns {Promise<{ok:boolean, pid?:number, error?:string}>}
    */
   launch(p) {
-    const { account, browserPath, args, profilesRoot, force = false } = p;
+    const { account, browserPath, args, profilesRoot, force = false, skipRunningCheck = false } = p;
     if (!browserPath) return Promise.resolve({ ok: false, error: 'browser-not-found' });
     if (!account) return Promise.resolve({ ok: false, error: 'account-not-found' });
 
-    if (this.isRunning(account.id, { account, profilesRoot })) {
+    if (!skipRunningCheck && this.isRunning(account.id, { account, profilesRoot })) {
       if (!force) return Promise.resolve({ ok: false, error: 'already-running' });
       return this.close(account.id, { account, profilesRoot }).then(() => this.launch({ ...p, force: false }));
     }

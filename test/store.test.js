@@ -251,3 +251,86 @@ test('getState زیر TUN نوع اتصال را برای رابط کاربری 
   assert.strictEqual(state.proxy.source, 'tun');
   assert.strictEqual(state.proxy.adapter, 'WireGuard Tunnel');
 });
+
+/* --- قابلیت‌های جدید از طریق store --- */
+
+test('closeAll همه‌ی اکانت‌های در حال اجرا را می‌بندد', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'netsplit-closeall-'));
+  const calls = [];
+  const spawn = (cmd, args) => {
+    const child = new EventEmitter();
+    child.pid = 600 + calls.length;
+    child.killed = false;
+    child.kill = () => {
+      child.killed = true;
+    };
+    calls.push({ cmd, args });
+    return child;
+  };
+  const killed = [];
+  const store = createStore({
+    configDir: dir,
+    platform: 'win32',
+    env: { APPDATA: dir },
+    spawn,
+    exists: existsWithoutLocks,
+    execFile: (cmd, args, cb) => {
+      killed.push(cmd);
+      cb(null, '', '');
+    },
+    detectProxy: () => Promise.resolve({ source: 'scan', host: '127.0.0.1', port: 10808, scheme: 'http', address: '127.0.0.1:10808' }),
+  });
+  const fakeBrowser = path.join(dir, 'chrome.exe');
+  fs.writeFileSync(fakeBrowser, 'x');
+  store.updateSettings({ chromePath: fakeBrowser });
+  await store.refreshProxy();
+  await store.launch(store.config.accounts[0].id);
+  await store.launch(store.config.accounts[1].id);
+  assert.strictEqual(store.launcher.runningIds().length, 2);
+
+  const result = await store.closeAll();
+  assert.strictEqual(result.closed, 2);
+  assert.strictEqual(store.launcher.runningIds().length, 0);
+  assert.strictEqual(killed.length, 2);
+});
+
+test('clearData از طریق store داده‌های همان اکانت را پاک می‌کند', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'netsplit-cleardata-'));
+  const store = createStore({
+    configDir: dir,
+    platform: 'win32',
+    env: { APPDATA: dir },
+    spawn: () => new EventEmitter(),
+    exists: existsWithoutLocks,
+    detectProxy: () => Promise.resolve({ source: 'none', host: null, port: null, address: '' }),
+  });
+  const account = store.config.accounts[0];
+  const base = path.join(store.profilesRoot, account.folder, 'Default');
+  fs.mkdirSync(base, { recursive: true });
+  fs.writeFileSync(path.join(base, 'Cookies'), 'x');
+
+  const result = store.clearData(account.id);
+  assert.strictEqual(result.ok, true);
+  assert.ok(!fs.existsSync(path.join(base, 'Cookies')));
+});
+
+test('setAutoLaunch کلید Run را با مسیر exe می‌نویسد', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'netsplit-auto-'));
+  const regCalls = [];
+  const store = createStore({
+    configDir: dir,
+    platform: 'win32',
+    env: { APPDATA: dir },
+    spawn: () => new EventEmitter(),
+    exists: existsWithoutLocks,
+    exePath: 'C:\\app\\NetSplit.exe',
+    execFile: (cmd, args, cb) => {
+      regCalls.push(args.join(' '));
+      cb(null, '', '');
+    },
+    detectProxy: () => Promise.resolve({ source: 'none', host: null, port: null, address: '' }),
+  });
+  const result = await store.setAutoLaunch(true);
+  assert.strictEqual(result.enabled, true);
+  assert.ok(regCalls[0].includes('C:\\app\\NetSplit.exe'));
+});

@@ -92,6 +92,19 @@ async function createApp(options = {}) {
       calls.push(['close', id]);
       return { ok: true };
     },
+    closeAll: async () => {
+      calls.push(['closeAll']);
+      return { ok: true, closed: 2 };
+    },
+    clearData: async (id) => {
+      calls.push(['clearData', id]);
+      return options.clearResult || { ok: true, removed: 3 };
+    },
+    setAutoLaunch: async (on) => {
+      calls.push(['setAutoLaunch', on]);
+      return { ok: true, enabled: on };
+    },
+    getAutoLaunch: async () => options.autoLaunch || false,
     chooseBrowser: async () => {
       calls.push(['chooseBrowser']);
       return state;
@@ -251,7 +264,7 @@ test('افزودن اکانت از طریق پنجره‌ی کوچک', async () 
 
 test('تغییر نام از کارت انجام می‌شود', async () => {
   const { document, calls, window } = await createApp();
-  click(cardOf(document, 'a1').querySelectorAll('.card-head .icon-btn')[0]);
+  click(cardOf(document, 'a1').querySelector('[data-action="rename"]'));
   await tick();
   const input = document.querySelector('#modalBody input');
   input.value = 'اکانت کاری';
@@ -265,7 +278,7 @@ test('تغییر نام از کارت انجام می‌شود', async () => {
 
 test('حذف اکانت با تأیید کاربر انجام می‌شود', async () => {
   const { document, calls, window } = await createApp();
-  click(cardOf(document, 'a2').querySelectorAll('.card-head .icon-btn')[1]);
+  click(cardOf(document, 'a2').querySelector('[data-action="remove"]'));
   await tick();
   assert.ok(document.getElementById('modalBody').textContent.includes('حذف می‌شود'));
   click(document.getElementById('modalOk'));
@@ -292,7 +305,7 @@ test('در تنظیمات می‌توان آدرس پروکسی را دستی و
   click(document.querySelector('.bottombar [data-action="settings"]'));
   await tick();
 
-  const inputs = document.querySelectorAll('#modalBody input');
+  const inputs = document.querySelectorAll('#modalBody input[type="text"]');
   inputs[1].value = '127.0.0.1:7890';
   click(document.getElementById('modalOk'));
   await tick();
@@ -394,5 +407,69 @@ test('تأیید در پنجره‌ی TUN، اکانت مستقیم را اجر�
   await tick();
   await tick();
   assert.deepStrictEqual(calls[0], ['launch', 'a2', null]);
+  window.NS.stop();
+});
+
+/* --- قابلیت‌های جدید: آی‌پی، پاک‌سازی، بستن همه، اجرای خودکار --- */
+
+test('دکمه‌ی کره، صفحه‌ی آی‌پی همان اکانت را باز می‌کند', async () => {
+  const { document, calls, window } = await createApp();
+  click(cardOf(document, 'a1').querySelector('[data-action="show-ip"]'));
+  await tick();
+  await tick();
+  const launchCalls = calls.filter((c) => c[0] === 'launch');
+  assert.strictEqual(launchCalls.length, 1);
+  assert.strictEqual(launchCalls[0][1], 'a1');
+  assert.ok(launchCalls[0][2].url.includes('ipify'));
+  assert.strictEqual(launchCalls[0][2].skipRunningCheck, true);
+  window.NS.stop();
+});
+
+test('پاک‌سازی با تأیید انجام می‌شود', async () => {
+  const { document, calls, window } = await createApp();
+  click(cardOf(document, 'a2').querySelector('[data-action="clear-data"]'));
+  await tick();
+  assert.ok(document.getElementById('modalBody').textContent.includes('پاک می‌شود'));
+  click(document.getElementById('modalOk'));
+  await tick();
+  await tick();
+  assert.deepStrictEqual(calls[0], ['clearData', 'a2']);
+  assert.ok(document.getElementById('status').textContent.includes('پاک شد'));
+  window.NS.stop();
+});
+
+test('اگر کروم باز باشد، پاک‌سازی خطای «اول ببندید» می‌دهد', async () => {
+  const { document, window } = await createApp({ clearResult: { ok: false, error: 'close-first' } });
+  click(cardOf(document, 'a2').querySelector('[data-action="clear-data"]'));
+  await tick();
+  click(document.getElementById('modalOk'));
+  await tick();
+  await tick();
+  assert.ok(document.getElementById('status').textContent.includes('اول کروم'));
+  assert.strictEqual(document.getElementById('status').className, 'status error');
+  window.NS.stop();
+});
+
+test('دکمه‌ی «بستن همه‌ی کروم‌ها» صدا زده می‌شود', async () => {
+  const { document, calls, window } = await createApp();
+  click(document.querySelector('.bottombar [data-action="close-all"]'));
+  await tick();
+  assert.deepStrictEqual(calls[0], ['closeAll']);
+  assert.ok(document.getElementById('status').textContent.includes('بسته شد'));
+  window.NS.stop();
+});
+
+test('تیک اجرای خودکار، setAutoLaunch را فعال می‌کند', async () => {
+  const { document, calls, window } = await createApp();
+  click(document.querySelector('.bottombar [data-action="settings"]'));
+  await tick();
+  const checkbox = document.querySelector('#modalBody input[type="checkbox"]');
+  assert.strictEqual(checkbox.checked, false);
+  checkbox.checked = true;
+  click(document.getElementById('modalOk'));
+  await tick();
+  await tick();
+  const autoCalls = calls.filter((c) => c[0] === 'setAutoLaunch');
+  assert.deepStrictEqual(autoCalls[0], ['setAutoLaunch', true]);
   window.NS.stop();
 });

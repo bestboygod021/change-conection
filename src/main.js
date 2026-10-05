@@ -68,6 +68,17 @@ function registerIpc() {
     return result;
   });
 
+  ipcMain.handle('accounts:close-all', async () => {
+    const result = await store.closeAll();
+    send('state', await store.getState());
+    return result;
+  });
+
+  ipcMain.handle('account:clear-data', async (_e, id) => store.clearData(id));
+
+  ipcMain.handle('settings:set-autolaunch', (_e, on) => store.setAutoLaunch(!!on));
+  ipcMain.handle('settings:get-autolaunch', () => store.getAutoLaunch());
+
   ipcMain.handle('dialog:choose-browser', async () => {
     const result = await dialog.showOpenDialog(win, {
       title: 'انتخاب فایل اجرایی مرورگر',

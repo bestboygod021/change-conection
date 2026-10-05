@@ -11,6 +11,8 @@ const { spawn, execFile } = require('child_process');
 const configLib = require('./config');
 const chrome = require('./chrome');
 const proxyLib = require('./proxy');
+const autostart = require('./autostart');
+const cleanup = require('./cleanup');
 const { Launcher } = require('./launcher');
 
 function createStore(options = {}) {
@@ -134,6 +136,7 @@ function createStore(options = {}) {
       args,
       profilesRoot,
       force: !!opts.force,
+      skipRunningCheck: !!opts.skipRunningCheck,
     });
     if (result.ok && warning) result.warning = warning;
     return result;
@@ -143,6 +146,39 @@ function createStore(options = {}) {
     const account = configLib.findAccount(config, id);
     if (!account) return Promise.resolve({ ok: false, error: 'account-not-found' });
     return launcher.close(id, { account, profilesRoot });
+  }
+
+  async function closeAll() {
+    let closed = 0;
+    for (const account of config.accounts) {
+      if (launcher.isRunning(account.id, { account, profilesRoot })) {
+        const result = await launcher.close(account.id, { account, profilesRoot });
+        if (result.ok) closed += 1;
+      }
+    }
+    return { ok: true, closed };
+  }
+
+  function clearData(id) {
+    const account = configLib.findAccount(config, id);
+    if (!account) return { ok: false, error: 'account-not-found' };
+    const running = launcher.isRunning(id, { account, profilesRoot });
+    return cleanup.clearBrowsingData({
+      account,
+      profilesRoot,
+      isRunning: running,
+      exists: options.exists,
+      rmSync: options.rmSync,
+    });
+  }
+
+  const exePath = options.exePath || process.execPath;
+  async function setAutoLaunch(on) {
+    const ok = on ? await autostart.enable(execFileFn, exePath) : await autostart.disable(execFileFn);
+    return { ok, enabled: !!on && ok };
+  }
+  function getAutoLaunch() {
+    return autostart.isEnabled(execFileFn);
   }
 
   return {
@@ -165,6 +201,10 @@ function createStore(options = {}) {
     updateSettings,
     launch,
     close,
+    closeAll,
+    clearData,
+    setAutoLaunch,
+    getAutoLaunch,
     browserInfo,
   };
 }
