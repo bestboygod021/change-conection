@@ -170,12 +170,33 @@ test('وضعیت فیلترشکن در نوار بالا نشان داده می�
   off.window.NS.stop();
 });
 
-test('اگر فیلترشکن پیدا نشود، پیام راهنما به کاربر می‌دهد نه اتصال اشتباه', async () => {
+test('برای فیلترشکن بدون پروکسی (TUN)، باز هم باز می‌کند و توضیح می‌دهد', async () => {
+  const { document, window } = await createApp({
+    launchResult: { ok: true, pid: 1, warning: 'no-proxy-follow-system' },
+  });
+  click(cardOf(document, 'a1').querySelector('[data-action="launch"]'));
+  await tick();
+  const status = document.getElementById('status');
+  assert.strictEqual(status.className, 'status ok');
+  assert.ok(status.textContent.includes('از اتصال فعال سیستم استفاده شد'));
+  window.NS.stop();
+});
+
+test('خطاهای ناشناخته به پیام فارسی نگاشت می‌شوند', async () => {
   const { document, window } = await createApp({ launchResult: { ok: false, error: 'no-proxy-detected' } });
   click(cardOf(document, 'a1').querySelector('[data-action="launch"]'));
   await tick();
   assert.ok(document.getElementById('status').textContent.includes('فیلترشکن را روشن کنید'));
   assert.strictEqual(document.getElementById('status').className, 'status error');
+  window.NS.stop();
+});
+
+test('راهنمای کارتِ با فیلترشکن بدون پروکسی، پیروی از سیستم را نشان می‌دهد', async () => {
+  const { document, window } = await createApp({
+    state: baseState({ proxy: { source: 'none', host: null, port: null, address: '' } }),
+  });
+  const hint = cardOf(document, 'a1').querySelector('.hint').textContent;
+  assert.ok(hint.includes('اتصال فعال سیستم'));
   window.NS.stop();
 });
 

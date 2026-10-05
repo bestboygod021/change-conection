@@ -84,6 +84,7 @@ test('اگر پروکسی رجیستری خاموش باشد، به گشتن پ�
     runner,
     ports: [7890],
     probe: (host, port) => Promise.resolve(port === 7890),
+    connect: (host, port) => Promise.resolve(port === 7890 ? { open: true, scheme: 'http' } : { open: false, scheme: 'http' }),
   });
   assert.strictEqual(result.source, 'scan');
   assert.strictEqual(result.port, 7890);
@@ -110,4 +111,71 @@ test('خطای reg query برنامه را نمی‌خواباند', async () =>
     probe: () => Promise.resolve(false),
   });
   assert.strictEqual(result.source, 'none');
+});
+
+/* --- تشخیص نوع پروکسی با دست‌دادن SOCKS5 (سازگار با انواع نرم‌افزارها) --- */
+
+function socks5Server() {
+  const server = net.createServer((socket) => {
+    socket.once('data', () => {
+      socket.write(Buffer.from([0x05, 0x00]));
+    });
+  });
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
+}
+
+function silentServer() {
+  const server = net.createServer(() => {
+    /* باز است ولی پروکسی نیست */
+  });
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
+}
+
+test('دست‌دادن SOCKS5 با یک پروکسی SOCKS5 واقعی موفق است', async () => {
+  const server = await socks5Server();
+  const port = server.address().port;
+  try {
+    assert.strictEqual(await proxy.socks5Handshake('127.0.0.1', port, 700), true);
+    const identified = await proxy.connectIdentify('127.0.0.1', port, 700);
+    assert.deepStrictEqual(identified, { open: true, scheme: 'socks5' });
+  } finally {
+    server.close();
+  }
+});
+
+test('پورت بازِ غیرپروکسی، SOCKS5 نیست ولی باز گزارش می‌شود', async () => {
+  const server = await silentServer();
+  const port = server.address().port;
+  try {
+    assert.strictEqual(await proxy.socks5Handshake('127.0.0.1', port, 500), false);
+    const identified = await proxy.connectIdentify('127.0.0.1', port, 500);
+    assert.deepStrictEqual(identified, { open: true, scheme: 'http' });
+  } finally {
+    server.close();
+  }
+});
+
+test('گشتن پورت، اولین پورت باز را با نوع درست برمی‌گرداند', async () => {
+  const server = await socks5Server();
+  const port = server.address().port;
+  try {
+    const found = await proxy.scanLocalProxies({ ports: [1, port], timeout: 600 });
+    assert.strictEqual(found.port, port);
+    assert.strictEqual(found.scheme, 'socks5');
+  } finally {
+    server.close();
+  }
+});
+
+test('پورت‌های اضافیِ کاربر هم در جست‌وجو شرکت می‌کنند', async () => {
+  const result = await proxy.detectProxy({
+    platform: 'linux',
+    ports: [],
+    extraPorts: [12345],
+    connect: (host, p) => Promise.resolve(p === 12345 ? { open: true, scheme: 'socks5' } : { open: false, scheme: 'http' }),
+  });
+  assert.strictEqual(result.source, 'scan');
+  assert.strictEqual(result.port, 12345);
+  assert.strictEqual(result.scheme, 'socks5');
+  assert.strictEqual(result.address, '127.0.0.1:12345');
 });

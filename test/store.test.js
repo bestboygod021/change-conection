@@ -84,15 +84,24 @@ test('تغییر حالت با یک کلیک، هم اعمال و هم ذخیر�
   assert.strictEqual(onDisk.accounts[0].mode, 'direct');
 });
 
-test('بدون فیلترشکنِ پیدا‌شده، حالت vpn خطای واضح می‌دهد (اتصال اشتباه نمی‌دهد)', async () => {
+test('فیلترشکن بدون پروکسی (TUN): حالت vpn بدون فلگ پروکسی اجرا می‌شود + هشدار', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'netsplit-noproxy-'));
+  const calls = [];
+  const spawn = (cmd, args) => {
+    const child = new EventEmitter();
+    child.pid = 700 + calls.length;
+    child.killed = false;
+    child.kill = () => {
+      child.killed = true;
+    };
+    calls.push({ cmd, args });
+    return child;
+  };
   const store = createStore({
     configDir: dir,
     platform: 'win32',
     env: { APPDATA: dir },
-    spawn: () => {
-      throw new Error('نباید اجرا شود');
-    },
+    spawn,
     exists: existsWithoutLocks,
     detectProxy: () => Promise.resolve({ source: 'none', host: null, port: null, address: '' }),
   });
@@ -103,7 +112,12 @@ test('بدون فیلترشکنِ پیدا‌شده، حالت vpn خطای وا
 
   const vpnAccount = store.config.accounts.find((a) => a.mode === 'vpn');
   const result = await store.launch(vpnAccount.id);
-  assert.strictEqual(result.error, 'no-proxy-detected');
+
+  // به‌جای خطا، باز می‌شود و از اتصال فعال سیستم پیروی می‌کند
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.warning, 'no-proxy-follow-system');
+  // و هیچ فلگ پروکسی‌ای ندارد تا TUN/پروکسی سیستم اعمال شود
+  assert.ok(!calls[0].args.some((a) => a.startsWith('--proxy-server')));
 });
 
 test('اگر مرورگر پیدا نشود، پیام مشخص برمی‌گردد', async () => {
@@ -148,4 +162,37 @@ test('پوشه‌ی پروفایل‌ها هنگام اجرا ساخته می‌
   await store.refreshProxy();
   await store.launch(store.config.accounts[0].id);
   assert.ok(fs.existsSync(store.profilesRoot));
+});
+
+test('پورت‌های اضافیِ ذخیره‌شده به لایه‌ی تشخیص پروکسی پاس داده می‌شوند', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'netsplit-extraports-'));
+  let captured = null;
+  const store = createStore({
+    configDir: dir,
+    platform: 'win32',
+    env: { APPDATA: dir },
+    spawn: () => new EventEmitter(),
+    exists: existsWithoutLocks,
+    detectProxy: (opts) => {
+      captured = opts;
+      return Promise.resolve({ source: 'none', host: null, port: null, address: '' });
+    },
+  });
+  store.updateSettings({ proxyPorts: [12345, 7890] });
+  await store.refreshProxy();
+  assert.deepStrictEqual(captured.extraPorts, [12345, 7890]);
+});
+
+test('پورت نامعتبر در proxyPorts حذف می‌شود', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'netsplit-badports-'));
+  const store = createStore({
+    configDir: dir,
+    platform: 'win32',
+    env: { APPDATA: dir },
+    spawn: () => new EventEmitter(),
+    exists: existsWithoutLocks,
+    detectProxy: () => Promise.resolve({ source: 'none', host: null, port: null, address: '' }),
+  });
+  store.updateSettings({ proxyPorts: [80, 'x', 99999, 80, 443] });
+  assert.deepStrictEqual(store.config.proxyPorts, [80, 443]);
 });

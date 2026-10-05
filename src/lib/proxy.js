@@ -1,15 +1,33 @@
 'use strict';
 
 /**
- * تشخیص پروکسی فیلترشکن روی سیستم.
- * دو راه: ۱) خواندن پروکسی سیستم از رجیستری ویندوز  ۲) گشتن پورت‌های رایج روی 127.0.0.1
+ * تشخیص پروکسی فیلترشکن روی سیستم — سازگار با انواع نرم‌افزارها.
+ *
+ * سه لایه، به ترتیب:
+ *  ۱) پروکسی سیستم در رجیستری ویندوز (هر نرم‌افزاری که «تنظیم پروکسی سیستم» را بزند:
+ *     v2rayN، Clash، Shadowsocks، Psiphon، Nekoray و …)
+ *  ۲) گشتن پورت‌های رایج + «دست‌دادن» SOCKS5 برای تأیید اینکه پورت واقعاً پروکسی است
+ *     و تشخیص نوعش (socks5 یا http) — بدون وابستگی به نام نرم‌افزار.
+ *  ۳) اگر هیچ پروکسی پیدا نشد، حالت «با فیلترشکن» از اتصال فعال سیستم (TUN/آداپتور)
+ *     پیروی می‌کند؛ این برای فیلترشکن‌های بدون‌پروکسی (Warp، OpenVPN، TUN) درست است.
  */
 
 const net = require('net');
 const { execFile } = require('child_process');
 
-/** پورت‌های رایج فیلترشکن‌ها (v2rayN / Clash / Psiphon / Outline / Nekoray و ...) */
-const COMMON_PORTS = [10808, 10809, 1080, 7890, 7891, 1087, 2080, 8888, 8080, 8118, 20171, 40000];
+/** پورت‌های رایج انواع فیلترشکن‌ها و تغییر آی‌پی */
+const COMMON_PORTS = [
+  // v2ray / v2rayN / V2Box / Nekoray / Sing-box
+  10808, 10809, 1080, 1081, 2080, 2081, 10801, 10802, 20170, 20171,
+  // Clash / Clash Verge / Clash for Windows / Mihomo
+  7890, 7891, 7892, 7893, 9090,
+  // Shadowsocks / ShadowsocksR / Outline
+  1080, 8388, 8389, 1087,
+  // Hiddify / Sing-box mixed
+  12334, 2053, 443,
+  // عمومی / Privoxy / Polipo / Tor / Lantern / HTTP proxies
+  8118, 8123, 8080, 8081, 8888, 8889, 9050, 9150, 40000, 40001,
+];
 
 const REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
 
@@ -41,7 +59,6 @@ function parseProxyServer(value) {
 function parseHostPort(value, scheme = 'http') {
   const raw = String(value || '').trim();
   if (!raw) return null;
-  // IPv6 ساده مثل [::1]:1080
   const m = raw.match(/^\[?([0-9a-fA-F:.]+|[a-z0-9.-]+)\]?:(\d{1,5})$/);
   if (!m) return null;
   const port = Number(m[2]);
@@ -69,6 +86,7 @@ function parseRegInternetSettings(stdout) {
 function probePort(host, port, timeout = 400, netModule = net) {
   return new Promise((resolve) => {
     let done = false;
+    let socket;
     const finish = (ok) => {
       if (done) return;
       done = true;
@@ -79,7 +97,7 @@ function probePort(host, port, timeout = 400, netModule = net) {
       }
       resolve(ok);
     };
-    const socket = netModule.connect({ host, port });
+    socket = netModule.connect({ host, port });
     socket.setTimeout(timeout);
     socket.once('connect', () => finish(true));
     socket.once('timeout', () => finish(false));
@@ -87,17 +105,60 @@ function probePort(host, port, timeout = 400, netModule = net) {
   });
 }
 
-/** گشتن پورت‌های رایج به ترتیب اولویت */
+/**
+ * دست‌دادن SOCKS5: اگر سرویس واقعاً پروکسی SOCKS5 باشد، به سلامِ ما
+ * [0x05,0x01,0x00] با [0x05,0x00] پاسخ می‌دهد. این تأیید می‌کند پورت باز،
+ * یک پروکسی است — مستقل از نام نرم‌افزار.
+ */
+function socks5Handshake(host, port, timeout = 500, netModule = net) {
+  return new Promise((resolve) => {
+    let done = false;
+    let socket;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      try {
+        socket.destroy();
+      } catch (_) {
+        /* noop */
+      }
+      resolve(ok);
+    };
+    socket = netModule.connect({ host, port });
+    socket.setTimeout(timeout);
+    socket.once('connect', () => {
+      socket.write(Buffer.from([0x05, 0x01, 0x00]));
+    });
+    socket.once('data', (data) => {
+      finish(!!data && data.length >= 2 && data[0] === 0x05 && data[1] === 0x00);
+    });
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+  });
+}
+
+/**
+ * بررسی یک پورت: باز است؟ و اگر بله، نوع پروکسی چیست؟
+ * @returns {Promise<{open:boolean, scheme:string}>}
+ */
+async function connectIdentify(host, port, timeout = 500, netModule = net) {
+  const open = await probePort(host, port, timeout, netModule);
+  if (!open) return { open: false, scheme: 'http' };
+  const isSocks = await socks5Handshake(host, port, timeout, netModule);
+  return { open: true, scheme: isSocks ? 'socks5' : 'http' };
+}
+
+/** گشتن پورت‌ها به ترتیب اولویت و تشخیص نوع پروکسی */
 async function scanLocalProxies(options = {}) {
   const host = options.host || '127.0.0.1';
-  const ports = options.ports || COMMON_PORTS;
-  const timeout = options.timeout || 400;
-  const probe = options.probe || ((h, p, t) => probePort(h, p, t));
+  const ports = options.ports && options.ports.length ? options.ports : COMMON_PORTS;
+  const timeout = options.timeout || 500;
+  const connect = options.connect || ((h, p, t) => connectIdentify(h, p, t));
 
-  const results = await Promise.all(ports.map((port) => probe(host, port, timeout)));
-  const index = results.findIndex(Boolean);
-  if (index < 0) return null;
-  return { host, port: ports[index], scheme: 'http' };
+  const results = await Promise.all(ports.map((port) => connect(host, port, timeout).then((r) => ({ port, ...r }))));
+  const hit = results.find((r) => r.open);
+  if (!hit) return null;
+  return { host, port: hit.port, scheme: hit.scheme };
 }
 
 function runRegQuery(runner) {
@@ -115,21 +176,22 @@ function runRegQuery(runner) {
 
 /**
  * تشخیص پروکسی فعال. خروجی: {source, host, port, scheme, address} یا source:'none'
- * @param {object} options  {platform, runner, probe, ports, timeout, host}
+ * source: 'registry' | 'scan' | 'none'
  */
 async function detectProxy(options = {}) {
   const platform = options.platform || process.platform;
   const runner = options.runner || execFile;
   const host = options.host || '127.0.0.1';
   const probe = options.probe || ((h, p, t) => probePort(h, p, t));
+  const connect = options.connect || ((h, p, t) => connectIdentify(h, p, t));
 
-  // ۱) پروکسی سیستم در ویندوز
+  // ۱) پروکسی سیستم در ویندوز (هر نرم‌افزاری که آن را ست کند)
   if (platform === 'win32') {
     const out = await runRegQuery(runner);
     if (out) {
       const info = parseRegInternetSettings(out);
       if (info.enabled && info.host && info.port) {
-        const alive = await probe(info.host, info.port, options.timeout || 400);
+        const alive = await probe(info.host, info.port, options.timeout || 500);
         if (alive) {
           return {
             source: 'registry',
@@ -143,8 +205,14 @@ async function detectProxy(options = {}) {
     }
   }
 
-  // ۲) گشتن پورت‌های رایج
-  const scanned = await scanLocalProxies({ host, ports: options.ports, timeout: options.timeout, probe });
+  // ۲) گشتن پورت‌های رایج + تأیید پروتکل
+  const extra = Array.isArray(options.extraPorts) ? options.extraPorts : [];
+  const scanned = await scanLocalProxies({
+    host,
+    ports: [...(options.ports || COMMON_PORTS), ...extra],
+    timeout: options.timeout,
+    connect,
+  });
   if (scanned) {
     return { source: 'scan', ...scanned, address: `${scanned.host}:${scanned.port}` };
   }
@@ -159,6 +227,8 @@ module.exports = {
   parseHostPort,
   parseRegInternetSettings,
   probePort,
+  socks5Handshake,
+  connectIdentify,
   scanLocalProxies,
   detectProxy,
 };

@@ -18,11 +18,20 @@ function defaultConfig() {
     version: CONFIG_VERSION,
     chromePath: '', // خالی = جست‌وجوی خودکار
     proxy: 'auto', // 'auto' یا مثلاً '127.0.0.1:10808' یا 'socks5://127.0.0.1:1080'
+    proxyPorts: [], // پورت‌های اضافی برای گشتن (برای فیلترشکن‌های خاص)
     accounts: [
       createAccount('اکانت با فیلترشکن', 'vpn', []),
       createAccount('اکانت بدون فیلترشکن', 'direct', []),
     ],
   };
+}
+
+function normalizePorts(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((p) => Number(p))
+    .filter((p) => Number.isInteger(p) && p >= 1 && p <= 65535)
+    .filter((p, i, arr) => arr.indexOf(p) === i);
 }
 
 /** پاک‌سازی نام برای استفاده به‌عنوان نام پوشه‌ی پروفایل کروم */
@@ -79,6 +88,7 @@ function normalizeConfig(raw) {
     version: CONFIG_VERSION,
     chromePath: typeof safe.chromePath === 'string' ? safe.chromePath.trim() : '',
     proxy: typeof safe.proxy === 'string' && safe.proxy.trim() ? safe.proxy.trim() : 'auto',
+    proxyPorts: normalizePorts(safe.proxyPorts),
     accounts: accounts.length ? accounts : defaultConfig().accounts,
   };
   // نام پوشه‌ی تکراری = تداخل پروفایل‌ها؛ اصلاحش کن
@@ -154,6 +164,7 @@ function removeAccount(config, id) {
 function updateSettings(config, patch = {}) {
   if (typeof patch.chromePath === 'string') config.chromePath = patch.chromePath.trim();
   if (typeof patch.proxy === 'string' && patch.proxy.trim()) config.proxy = patch.proxy.trim();
+  if (patch.proxyPorts !== undefined) config.proxyPorts = normalizePorts(patch.proxyPorts);
   return config;
 }
 
@@ -174,4 +185,5 @@ module.exports = {
   updateSettings,
   sanitizeFolderName,
   uniqueFolderName,
+  normalizePorts,
 };

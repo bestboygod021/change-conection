@@ -40,7 +40,10 @@ function createStore(options = {}) {
       platform,
       runner: execFileFn,
       probe: options.probe,
+      connect: options.connect,
       ports: options.proxyPorts,
+      extraPorts: config.proxyPorts,
+      timeout: options.proxyTimeout,
     });
     return detected;
   }
@@ -105,8 +108,11 @@ function createStore(options = {}) {
     const browser = browserInfo();
     if (!browser) return { ok: false, error: 'browser-not-found' };
 
+    let warning = null;
     if (account.mode === 'vpn' && !chrome.resolveProxyServer('vpn', config.proxy, detected)) {
-      return { ok: false, error: 'no-proxy-detected' };
+      // پروکسی پیدا نشد؛ احتمالاً فیلترشکن از نوع TUN/آداپتور است.
+      // بدون فلگ پروکسی اجرا می‌کنیم تا از همان اتصال فعال سیستم پیروی کند.
+      warning = 'no-proxy-follow-system';
     }
 
     fs.mkdirSync(profilesRoot, { recursive: true });
@@ -125,6 +131,7 @@ function createStore(options = {}) {
       profilesRoot,
       force: !!opts.force,
     });
+    if (result.ok && warning) result.warning = warning;
     return result;
   }
 

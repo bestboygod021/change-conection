@@ -85,7 +85,8 @@
     if (account.mode === 'direct') return 'بدون پروکسی — حتی اگر فیلترشکن روشن باشد';
     if (account.mode === 'system') return 'همان پروکسی که در تنظیمات ویندوز فعال است';
     const address = proxyAddress(data);
-    return address ? `از طریق پروکسی ${address}` : 'پروکسی فیلترشکن پیدا نشد — تنظیمات را ببینید';
+    if (address) return `از طریق پروکسی ${address}`;
+    return 'پروکسی پیدا نشد؛ از اتصال فعال سیستم پیروی می‌کند (TUN یا پروکسی سیستم)';
   }
 
   async function refresh() {
@@ -237,7 +238,10 @@
     try {
       const result = await api.launch(account.id);
       if (result && result.ok) {
-        setStatus(`کروم «${account.name}» باز شد.`, 'ok');
+        const note = result.warning === 'no-proxy-follow-system'
+          ? ' (پروکسی پیدا نشد؛ از اتصال فعال سیستم استفاده شد)'
+          : '';
+        setStatus(`کروم «${account.name}» باز شد.${note}`, 'ok');
       } else if (result && result.error === 'already-running') {
         const reopen = await askRelaunch(account);
         if (reopen) {
@@ -374,6 +378,12 @@
           placeholder: data.proxy && data.proxy.address ? `خودکار (${data.proxy.address})` : '127.0.0.1:10808',
           dir: 'ltr',
         });
+        const portsInput = el('input', {
+          type: 'text',
+          value: (data.config.proxyPorts || []).join(', '),
+          placeholder: 'مثلاً: 10808, 7890',
+          dir: 'ltr',
+        });
 
         const browseBtn = el('button', {
           class: 'btn btn-ghost',
@@ -410,6 +420,14 @@
               }),
             ]),
             el('div', { class: 'field' }, [
+              el('label', { text: 'پورت‌های اضافی برای جست‌وجو (اختیاری)' }),
+              portsInput,
+              el('p', {
+                class: 'note',
+                text: 'اگر فیلترشکن شما پورت خاص خودش را دارد، اینجا اضافه کنید تا پیدایش کند.',
+              }),
+            ]),
+            el('div', { class: 'field' }, [
               el('label', { text: 'پوشه‌ی پروفایل‌ها' }),
               el('input', { type: 'text', value: data.profilesRoot, dir: 'ltr', readonly: 'readonly' }),
               el('div', { class: 'row', style: 'margin-top:8px' }, [
@@ -421,7 +439,14 @@
               ]),
             ]),
           ]),
-          read: () => ({ chromePath: browserInput.value, proxy: proxyInput.value.trim() || 'auto' }),
+          read: () => ({
+            chromePath: browserInput.value,
+            proxy: proxyInput.value.trim() || 'auto',
+            proxyPorts: String(portsInput.value)
+              .split(/[\s,،]+/)
+              .map(Number)
+              .filter((n) => Number.isInteger(n) && n >= 1 && n <= 65535),
+          }),
         };
       },
       onOk: async (value) => {
