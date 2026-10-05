@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'" />
+  <title>نت‌اسپلیت — تفکیک اتصال</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v6" />
+          <path d="M6.5 13a5.5 5.5 0 1 1 11 0" />
+          <circle cx="6.5" cy="17.5" r="2.2" />
+          <circle cx="17.5" cy="17.5" r="2.2" />
+          <path d="M8.7 17.5h6.6" />
+        </svg>
+      </div>
+      <div>
+        <h1>نت‌اسپلیت</h1>
+        <p>هر اکانت کروم، اتصال اینترنت خودش</p>
+      </div>
+    </div>
+    <div class="proxy-chip" id="proxyChip" role="status">
+      <span class="dot" id="proxyDot"></span>
+      <span id="proxyText">در حال بررسی…</span>
+      <button class="icon-btn" id="refreshProxy" title="تشخیص دوباره‌ی فیلترشکن" aria-label="تشخیص دوباره">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 5v6h-6" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="content">
+    <div id="cards" class="cards" aria-live="polite"></div>
+
+    <div class="empty" id="emptyState" hidden>
+      <p>هنوز اکانتی اضافه نکرده‌اید.</p>
+      <button class="btn btn-primary" data-action="add">افزودن اکانت</button>
+    </div>
+  </main>
+
+  <footer class="bottombar">
+    <button class="btn btn-ghost" data-action="add">
+      <span class="plus">+</span> افزودن اکانت
+    </button>
+    <div class="spacer"></div>
+    <div class="status" id="status" role="status"></div>
+    <button class="btn btn-ghost" data-action="settings">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" />
+      </svg>
+      تنظیمات
+    </button>
+  </footer>
+
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <h2 id="modalTitle"></h2>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modalCancel">انصراف</button>
+        <button class="btn btn-primary" id="modalOk">تأیید</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

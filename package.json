@@ -1,0 +1,65 @@
+{
+  "name": "netsplit",
+  "productName": "NetSplit",
+  "version": "1.0.0",
+  "description": "تفکیک اتصال اینترنت برای پروفایل‌های مختلف گوگل کروم",
+  "main": "src/main.js",
+  "author": "bestboygod021",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "demo": "node demo/server.js",
+    "dist:win": "electron-builder --win --x64",
+    "dist:portable": "electron-builder --win portable --x64",
+    "pack:dir": "electron-builder --win dir --x64"
+  },
+  "devDependencies": {
+    "electron": "^38.2.1",
+    "electron-builder": "^26.0.12",
+    "jsdom": "^30.1.2"
+  },
+  "build": {
+    "appId": "com.bestboygod021.netsplit",
+    "productName": "NetSplit",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "src/**/*",
+      "assets/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "NetSplit"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    }
+  }
+}
